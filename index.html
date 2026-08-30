@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Peptide Tracker</title>
+
+<style>
+*{box-sizing:border-box}
+:root{
+ --bg:#0b1116;--card:#172129;--card2:#202d36;
+ --blue:#64b5f6;--green:#66bb6a;--orange:#ffb74d;
+ --red:#ef5350;--text:#f4f7f9;--muted:#9baab4;
+}
+body{
+ margin:0;background:#05080a;color:var(--text);
+ font-family:Arial,sans-serif;
+}
+.phone{
+ max-width:430px;min-height:100vh;margin:auto;
+ background:var(--bg);padding-bottom:80px;
+}
+header{
+ position:sticky;top:0;z-index:10;
+ height:64px;background:var(--card);
+ display:flex;align-items:center;padding:0 18px;
+ border-bottom:1px solid #2a3942;
+}
+header h1{font-size:21px;margin:0}
+main{padding:16px}
+.card{
+ background:var(--card);border:1px solid #293943;
+ border-radius:15px;padding:15px;margin-bottom:12px;
+}
+h2{font-size:18px;margin:4px 0 12px}
+h3{font-size:16px}
+.muted{color:var(--muted);font-size:13px}
+.green{color:var(--green)}
+.orange{color:var(--orange)}
+.red{color:var(--red)}
+button{
+ border:0;border-radius:10px;padding:11px 14px;
+ cursor:pointer;font-weight:bold;
+}
+.primary{background:var(--blue);color:#07121a}
+.secondary{background:var(--card2);color:white;border:1px solid #3a4b55}
+.full{width:100%}
+.row{display:flex;align-items:center;gap:10px}
+.grow{flex:1}
+input,select,textarea{
+ width:100%;padding:11px;margin:5px 0 12px;
+ background:#0e171d;color:white;
+ border:1px solid #3a4a54;border-radius:9px;
+}
+textarea{min-height:75px}
+label{font-size:13px;color:var(--muted)}
+.check{
+ width:45px;height:45px;border-radius:50%;
+ background:#293943;color:white;font-size:20px;
+}
+.check.taken{background:var(--green)}
+.nav{
+ position:fixed;bottom:0;width:100%;max-width:430px;
+ height:76px;background:#141d23;
+ border-top:1px solid #2a3942;
+ display:grid;grid-template-columns:repeat(5,1fr);
+ z-index:20;
+}
+.nav button{
+ background:transparent;color:var(--muted);
+ border-radius:0;padding:5px;font-size:10px;
+}
+.nav button span{display:block;font-size:21px;margin-bottom:3px}
+.nav button.active{color:var(--blue)}
+.grid{
+ display:grid;grid-template-columns:repeat(7,1fr);
+ gap:5px;
+}
+.day{
+ min-height:43px;background:var(--card2);
+ border-radius:8px;display:flex;
+ align-items:center;justify-content:center;
+ position:relative;font-size:13px;
+ cursor:pointer;
+}
+.day.today{outline:2px solid var(--blue)}
+.day.taken{background:#1d4931}
+.day.hasReminder{border-bottom:3px solid var(--orange)}
+.dot{
+ position:absolute;bottom:4px;width:5px;height:5px;
+ border-radius:50%;background:var(--green);
+}
+.modal-bg{
+ position:fixed;inset:0;background:#000b;
+ z-index:50;display:flex;align-items:flex-end;
+}
+.modal{
+ width:100%;max-width:430px;margin:auto;
+ background:var(--card);border-radius:20px 20px 0 0;
+ padding:20px;max-height:92vh;overflow:auto;
+}
+.hidden{display:none}
+.badge{
+ display:inline-block;padding:5px 8px;
+ border-radius:8px;background:var(--card2);
+ font-size:12px;
+}
+.list-item{
+ padding:13px 0;border-bottom:1px solid #293841;
+}
+</style>
+</head>
+
+<body>
+
+<div class="phone">
+
+<header>
+ <h1 id="title">Today</h1>
+</header>
+
+<main id="app"></main>
+
+<nav class="nav">
+
+<button class="active" onclick="page('today',this)">
+ <span>📅</span>Today
+</button>
+
+<button onclick="page('calendar',this)">
+ <span>🗓️</span>Calendar
+</button>
+
+<button onclick="page('inventory',this)">
+ <span>📦</span>Inventory
+</button>
+
+<button onclick="page('history',this)">
+ <span>🧾</span>History
+</button>
+
+<button onclick="page('settings',this)">
+ <span>⚙️</span>More
+</button>
+
+</nav>
+</div>
+
+<div id="modal"></div>
+
+<script>
+
+/* =========================
+   DATA
+========================= */
+
+const defaultPeptides=[
+ {id:1,name:"Reta",enabled:true},
+ {id:2,name:"MOTC",enabled:true},
+ {id:3,name:"NAD+",enabled:true},
+ {id:4,name:"CJC-1295 no DAC + Ipamorelin",enabled:true},
+ {id:5,name:"TB-500 + BPC-157",enabled:true}
+];
+
+let data=JSON.parse(
+ localStorage.getItem("peptideTracker")
+ || "null"
+) || {
+ peptides:defaultPeptides,
+ vials:[],
+ doses:[],
+ reminders:[]
+};
+
+function save(){
+ localStorage.setItem(
+  "peptideTracker",
+  JSON.stringify(data)
+ );
+}
+
+function id(){
+ return Date.now()+Math.floor(Math.random()*1000);
+}
+
+function dateKey(d=new Date()){
+ const x=new Date(d);
+ return x.getFullYear()+"-"+
+  String(x.getMonth()+1).padStart(2,"0")+"-"+
+  String(x.getDate()).padStart(2,"0");
+}
+
+function formatTime(t){
+ return new Date(t).toLocaleString([],{
+  month:"short",day:"numeric",
+  year:"numeric",hour:"numeric",minute:"2-digit"
+ });
+}
+
+function peptide(id){
+ return data.peptides.find(p=>p.id==id);
+}
+
+/* =========================
+   NAVIGATION
+========================= */
+
+function page(name,btn){
+
+ document.querySelectorAll(".nav button")
+  .forEach(x=>x.classList.remove("active"));
+
+ if(btn)btn.classList.add("active");
+
+ const titles={
+  today:"Today",
+  calendar:"Calendar",
+  inventory:"Inventory",
+  history:"History",
+  settings:"More"
+ };
+
+ document.getElementById("title").textContent=titles[name];
+
+ if(name==="today")today();
+ if(name==="calendar")calendar();
+ if(name==="inventory")inventory();
+ if(name==="history")history();
+ if(name==="settings")settings();
+}
+
+/* =========================
+   TODAY
+========================= */
+
+function today(){
+
+ let html=`
+ <div class="muted">
+ ${new Date().toLocaleDateString([],{
+  weekday:"long",month:"long",
+  day:"numeric",year:"numeric"
+ })}
+ </div>
+
+ <h2 style="margin-top:20px">
+ Quick Select
+ </h2>
+ `;
+
+ data.peptides
+ .filter(p=>p.enabled)
+ .forEach(p=>{
+
+  const taken=data.doses.some(d=>
+   d.peptideId==p.id &&
+   dateKey(d.time)===dateKey()
+  );
+
+  const reminders=data.reminders.filter(r=>
+   r.peptideId==p.id && r.enabled
+  );
+
+  html+=`
+  <div class="card">
+
+   <div class="row">
+
+    <div class="grow">
+     <b>${esc(p.name)}</b>
+
+     <div class="muted">
+      ${taken
+       ?"✓ Taken today"
+       :"Not recorded today"}
+     </div>
+
+     ${
+      reminders.length
+      ? `<div class="orange" style="margin-top:5px">
+          🔔 ${reminders.map(r=>time(r.hour,r.minute)).join(", ")}
+         </div>`
+      :""
+     }
+    </div>
+
+    <button
+     class="check ${taken?"taken":""}"
+     onclick="dose(${p.id})">
+     ${taken?"✓":"＋"}
+    </button>
+
+   </div>
+
+  </div>
+  `;
+ });
+
+ html+=`
+ <div class="card">
+  <b>Tracking app</b>
+  <p class="muted">
+   Enter and record your own information.
+   This app does not recommend doses or
+   reconstitution instructions.
+  </p>
+ </div>
+ `;
+
+ document.getElementById("app").innerHTML=html;
+}
+
+function dose(pid){
+
+ const p=peptide(pid);
+
+ openModal(`
+ <h2>Record ${esc(p.name)}</h2>
+
+ <label>Amount</label>
+ <input id="amount" type="number" step="any"
+  placeholder="Enter amount">
+
+ <label>Unit</label>
+ <select id="unit">
+  <option>mcg</option>
+  <option>mg</option>
+ </select>
+
+ <button class="primary full"
+  onclick="saveDose(${pid})">
+  ✓ Mark Taken
+ </button>
+
+ <button class="secondary full"
+  style="margin-top:8px"
+  onclick="closeModal()">
+  Cancel
+ </button>
+ `);
+}
+
+function saveDose(pid){
+
+ const amount=
+  parseFloat(document.getElementById("amount").value);
+
+ const unit=
+  document.getElementById("unit").value;
+
+ if(!amount||amount<=0){
+  alert("Enter an amount.");
+  return;
+ }
+
+ /*
+   Inventory subtraction uses a matching vial.
+   Exact inventory accounting can be expanded
+   to support multiple vial lots.
+ */
+
+ const vial=data.vials.find(v=>
+  v.peptideId==pid &&
+  v.unit===unit &&
+  v.remaining>0
+ );
+
+ if(vial){
+  vial.remaining=Math.max(
+   0,vial.remaining-amount
+  );
+ }
+
+ data.doses.push({
+  id:id(),
+  peptideId:pid,
+  amount,
+  unit,
+  time:Date.now(),
+  vialId:vial?vial.id:null
+ });
+
+ save();
+ closeModal();
+ today();
+}
+
+/* =========================
+   CALENDAR
+========================= */
+
+function calendar(){
+
+ const now=new Date();
+ const y=now.getFullYear();
+ const m=now.getMonth();
+
+ const first=new Date(y,m,1);
+ const days=new Date(y,m+1,0).getDate();
+
+ let html=`
+ <div class="card">
+
+ <h2>
+ ${now.toLocaleDateString([],{
+  month:"long",year:"numeric"
+ })}
+ </h2>
+
+ <div class="grid">
+ `;
+
+ ["S","M","T","W","T","F","S"]
+ .forEach(x=>{
+  html+=`
+  <div class="muted" style="text-align:center">
+   ${x}
+  </div>`;
+ });
+
+ for(let i=0;i<first.getDay();i++)
+  html+="<div></div>";
+
+ for(let d=1;d<=days;d++){
+
+  const key=
+   `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+
+  const taken=data.doses.some(
+   x=>dateKey(x.time)===key
+  );
+
+  const reminder=data.reminders.some(
+   x=>x.enabled
+  );
+
+  const todayFlag=key===dateKey();
+
+  html+=`
+  <div class="day
+   ${taken?"taken":""}
+   ${todayFlag?"today":""}
+   ${reminder?"hasReminder":""}"
+   onclick="calendarDay('${key}')">
+
+   ${d}
+
+   ${taken?'<span class="dot"></span>':""}
+
+  </div>`;
+ }
+
+ html+=`
+ </div>
+
+ <p class="muted">
+ 🟢 Recorded dose &nbsp; 🟠 Reminder
+ </p>
+
+ </div>
+
+ <div class="card">
+  <b>Reminders</b>
+  <p class="muted">
+   ${data.reminders.length
+    ?"Your scheduled reminders appear here."
+    :"No reminders yet."}
+  </p>
+
+  <button class="primary full"
+   onclick="addReminder()">
+   ＋ Add Reminder
+  </button>
+ </div>
+ `;
+
+ document.getElementById("app").innerHTML=html;
+}
+
+function calendarDay(key){
+
+ const doses=data.doses.filter(
+  x=>dateKey(x.time)===key
+ );
+
+ let text=`${key}\n\n`;
+
+ if(!doses.length)
+  text+="No recorded doses.";
+
+ doses.forEach(d=>{
+  text+=`${peptide(d.peptideId)?.name}\n`;
+  text+=`${d.amount} ${d.unit}\n`;
+  text+=`${formatTime(d.time)}\n\n`;
+ });
+
+ alert(text);
+}
+
+/* =========================
+   INVENTORY
+========================= */
+
+function inventory(){
+
+ let html=`
+ <button class="primary full"
+  onclick="addVial()">
+  ＋ Add Vial
+ </button>
+
+ <h2 style="margin-top:22px">
+ Vial Inventory
+ </h2>
+ `;
+
+ if(!data.vials.length){
+  html+=`
+  <div class="card">
+   <div style="text-align:center">
+    📦<br><br>
+    <span class="muted">
+     No vials added.
+    </span>
+   </div>
+  </div>`;
+ }
+
+ data.vials.forEach(v=>{
+
+  const p=peptide(v.peptideId);
+
+  const low=v.remaining<=v.threshold;
+
+  html+=`
+  <div class="card">
+
+   <h2>${esc(p?.name||"Unknown")}</h2>
+
+   <b>
+    ${v.remaining} ${v.unit}
+   </b>
+   <div class="muted">
+    of ${v.strength} ${v.unit} remaining
+   </div>
+
+   <p class="${low?"orange":"green"}">
+    ${low?"⚠ Low inventory":"✓ Inventory OK"}
+   </p>
+
+   <div class="muted">
+    Expiration:
+    ${v.expiration||"Not entered"}
+   </div>
+
+   <hr style="border-color:#30404a">
+
+   <b>Mixing notes</b>
+
+   <p class="muted">
+    ${esc(v.mixing)}
+   </p>
+
+   <b>Additional notes</b>
+
+   <p class="muted">
+    ${esc(v.notes)}
+   </p>
+
+   <div class="row">
+    <button class="secondary"
+     onclick="editVial(${v.id})">
+     Edit
+    </button>
+
+    <button class="secondary"
+     onclick="removeVial(${v.id})">
+     Delete
+    </button>
+   </div>
+
+  </div>
+  `;
+ });
+
+ document.getElementById("app").innerHTML=html;
+}
+
+function addVial(existing=null){
+
+ const v=existing
+  ?data.vials.find(x=>x.id==existing)
+  :null;
+
+ openModal(`
+ <h2>${v?"Edit":"Add"} Vial</h2>
+
+ <label>Peptide</label>
+ <select id="vPeptide">
+ ${
+  data.peptides.map(p=>
+   `<option value="${p.id}"
+   ${v&&v.peptideId==p.id?"selected":""}>
+   ${esc(p.name)}
+   </option>`
+  ).join("")
+ }
+ </select>
+
+ <label>Vial amount</label>
+ <input id="vStrength"
+  type="number" step="any"
+  value="${v?v.strength:""}">
+
+ <label>Unit</label>
+ <select id="vUnit">
+  <option ${!v||v.unit==="mg"?"selected":""}>mg</option>
+  <option ${v&&v.unit==="mcg"?"selected":""}>mcg</option>
+ </select>
+
+ <label>Expiration date</label>
+ <input id="vExpiration"
+  type="date"
+  value="${v?v.expiration:""}">
+
+ <label>Low inventory warning threshold</label>
+ <input id="vThreshold"
+  type="number" step="any"
+  value="${v?v.threshold:1}">
+
+ <label>Mixing notes</label>
+ <textarea id="vMixing"
+  placeholder="Enter your own vial mixing notes">${v?esc(v.mixing):""}</textarea>
+
+ <label>Additional notes</label>
+ <textarea id="vNotes">${v?esc(v.notes):""}</textarea>
+
+ <button class="primary full"
+  onclick="saveVial(${existing||0})">
+  Save Vial
+ </button>
+
+ <button class="secondary full"
+  style="margin-top:8px"
+  onclick="closeModal()">
+  Cancel
+ </button>
+ `);
+}
+
+function saveVial(existing){
+
+ const strength=
+  parseFloat(document.getElementById("vStrength").value);
+
+ if(!strength||strength<=0){
+  alert("Enter a vial amount.");
+  return;
+ }
+
+ const obj={
+  peptideId:
+   parseInt(document.getElementById("vPeptide").value),
+  strength,
+  unit:
+   document.getElementById("vUnit").value,
+  expiration:
+   document.getElementById("vExpiration").value,
+  threshold:
+   parseFloat(
+    document.getElementById("vThreshold").value
+   )||1,
+  mixing:
+   document.getElementById("vMixing").value,
+  notes:
+   document.getElementById("vNotes").value
+ };
+
+ if(existing){
+
+  const v=data.vials.find(x=>x.id==existing);
+
+  if(v){
+   const oldStrength=v.strength;
+   Object.assign(v,obj);
+
+   if(v.remaining>oldStrength)
+    v.remaining=v.strength;
+  }
+
+ }else{
+
+  data.vials.push({
+   id:id(),
+   ...obj,
+   remaining:strength
+  });
+ }
+
+ save();
+ closeModal();
+ inventory();
+}
+
+function editVial(id){
+ addVial(id);
+}
+
+function removeVial(id){
+
+ if(confirm("Delete this vial?")){
+
+  data.vials=
+   data.vials.filter(v=>v.id!=id);
+
+  save();
+  inventory();
+ }
+}
+
+/* =========================
+   HISTORY
+========================= */
+
+function history(){
+
+ let html=`
+ <h2>Dose History</h2>
+ `;
+
+ if(!data.doses.length){
+
+  html+=`
+  <div class="card">
+   <div class="muted"
+    style="text-align:center">
+    No dose history yet.
+   </div>
+  </div>`;
+ }
+
+ data.doses
+ .slice()
+ .reverse()
+ .forEach(d=>{
+
+  const p=peptide(d.peptideId);
+
+  html+=`
+  <div class="card">
+
+   <div class="row">
+
+    <div class="grow">
+     <b>${esc(p?.name||"Unknown")}</b>
+
+     <div>
+      ${d.amount} ${d.unit}
+     </div>
+
+     <div class="muted">
+      ${formatTime(d.time)}
+     </div>
+    </div>
+
+    <button class="secondary"
+     onclick="undo(${d.id})">
+     Undo
+    </button>
+
+   </div>
+
+  </div>`;
+ });
+
+ document.getElementById("app").innerHTML=html;
+}
+
+function undo(id){
+
+ const index=data.doses.findIndex(
+  d=>d.id==id
+ );
+
+ if(index<0)return;
+
+ const d=data.doses[index];
+
+ if(d.vialId){
+
+  const v=data.vials.find(
+   x=>x.id==d.vialId
+  );
+
+  if(v)
+   v.remaining+=d.amount;
+ }
+
+ data.doses.splice(index,1);
+
+ save();
+ history();
+}
+
+/* =========================
+   PEPTIDES / MORE
+========================= */
+
+function settings(){
+
+ let html=`
+ <button class="primary full"
+  onclick="addPeptide()">
+  ＋ Add Peptide
+ </button>
+
+ <button class="secondary full"
+  style="margin-top:8px"
+  onclick="addReminder()">
+  🔔 Manage Reminders
+ </button>
+
+ <h2 style="margin-top:22px">
+ Peptide Options
+ </h2>
+ `;
+
+ data.peptides.forEach(p=>{
+
+  html+=`
+  <div class="card">
+   <div class="row">
+
+    <div class="grow">
+     <b>${esc(p.name)}</b>
+     <div class="muted">
+      ${p.enabled?"Enabled":"Disabled"}
+     </div>
+    </div>
+
+    <button class="secondary"
+     onclick="togglePeptide(${p.id})">
+     ${p.enabled?"On":"Off"}
+    </button>
+
+   </div>
+  </div>`;
+ });
+
+ html+=`
+ <div class="card">
+  <b>Local data</b>
+  <p class="muted">
+   This preview stores information in your
+   browser using localStorage.
+  </p>
+
+  <button class="secondary full"
+   onclick="clearData()">
+   Reset Preview Data
+  </button>
+ </div>
+ `;
+
+ document.getElementById("app").innerHTML=html;
+}
+
+function togglePeptide(id){
+
+ const p=peptide(id);
+
+ if(p)p.enabled=!p.enabled;
+
+ save();
+ settings();
+}
+
+function addPeptide(){
+
+ openModal(`
+ <h2>Add Peptide</h2>
+
+ <label>Name</label>
+ <input id="newPeptide"
+  placeholder="Enter tracking name">
+
+ <button class="primary full"
+  onclick="savePeptide()">
+  Add
+ </button>
+
+ <button class="secondary full"
+  style="margin-top:8px"
+  onclick="closeModal()">
+  Cancel
+ </button>
+ `);
+}
+
+function savePeptide(){
+
+ const name=
+  document.getElementById("newPeptide")
+  .value.trim();
+
+ if(!name)return;
+
+ data.peptides.push({
+  id:id(),
+  name,
+  enabled:true
+ });
+
+ save();
+ closeModal();
+ settings();
+}
+
+/* =========================
+   REMINDERS
+========================= */
+
+function addReminder(){
+
+ openModal(`
+ <h2>🔔 Add Reminder</h2>
+
+ <label>Peptide</label>
+ <select id="rPeptide">
+ ${
+  data.peptides.map(p=>
+   `<option value="${p.id}">
+    ${esc(p.name)}
+   </option>`
+  ).join("")
+ }
+ </select>
+
+ <label>Reminder time</label>
+ <input id="rTime" type="time" value="09:00">
+
+ <label>Repeat</label>
+ <select id="rRepeat">
+  <option value="daily">
+   Every day
+  </option>
+  <option value="weekdays">
+   Weekdays
+  </option>
+  <option value="custom">
+   Selected days
+  </option>
+ </select>
+
+ <div class="card">
+  <span class="muted">
+   🔔 The Android version will use
+   phone notifications for these reminders.
+   This browser preview only stores the
+   reminder schedule.
+  </span>
+ </div>
+
+ <button class="primary full"
+  onclick="saveReminder()">
+  Save Reminder
+ </button>
+
+ <button class="secondary full"
+  style="margin-top:8px"
+  onclick="closeModal()">
+  Cancel
+ </button>
+
+ <h3>Existing reminders</h3>
+
+ <div id="existingReminders">
+ ${renderReminderList()}
+ </div>
+ `);
+}
+
+function saveReminder(){
+
+ const pid=
+  parseInt(
+   document.getElementById("rPeptide").value
+  );
+
+ const timeValue=
+  document.getElementById("rTime").value;
+
+ const repeat=
+  document.getElementById("rRepeat").value;
+
+ const [hour,minute]=
+  timeValue.split(":").map(Number);
+
+ data.reminders.push({
+  id:id(),
+  peptideId:pid,
+  hour,
+  minute,
+  repeat,
+  enabled:true
+ });
+
+ save();
+ closeModal();
+ calendar();
+}
+
+function renderReminderList(){
+
+ if(!data.reminders.length)
+  return `<p class="muted">No reminders.</p>`;
+
+ return data.reminders.map(r=>{
+
+  const p=peptide(r.peptideId);
+
+  return `
+  <div class="list-item">
+
+   <div class="row">
+
+    <div class="grow">
+     <b>${esc(p?.name||"Unknown")}</b>
+
+     <div class="muted">
+      🔔 ${time(r.hour,r.minute)}
+      • ${r.repeat}
+     </div>
+    </div>
+
+    <button class="secondary"
+     onclick="deleteReminder(${r.id})">
+     Delete
+    </button>
+
+   </div>
+
+  </div>`;
+ }).join("");
+}
+
+function deleteReminder(id){
+
+ data.reminders=
+  data.reminders.filter(r=>r.id!=id);
+
+ save();
+ addReminder();
+}
+
+function time(h,m){
+
+ return new Date(
+  2000,0,1,h,m
+ ).toLocaleTimeString([],{
+  hour:"numeric",
+  minute:"2-digit"
+ });
+}
+
+/* =========================
+   MODAL
+========================= */
+
+function openModal(content){
+
+ document.getElementById("modal").innerHTML=`
+ <div class="modal-bg">
+  <div class="modal">
+   ${content}
+  </div>
+ </div>`;
+}
+
+function closeModal(){
+ document.getElementById("modal").innerHTML="";
+}
+
+/* =========================
+   HELPERS
+========================= */
+
+function esc(value){
+
+ return String(value??"")
+  .replace(/&/g,"&amp;")
+  .replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;")
+  .replace(/"/g,"&quot;")
+  .replace(/'/g,"&#039;");
+}
+
+function clearData(){
+
+ if(confirm(
+  "Reset all preview data?"
+  )){
+   localStorage.removeItem(
+    "peptideTracker"
+   );
+   location.reload();
+ }
+}
+
+/* START */
+
+today();
+
+</script>
+
+</body>
+</html>
